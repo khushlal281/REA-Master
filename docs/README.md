@@ -186,6 +186,7 @@ the exact commit messages and references from the release they describe.
 - [PE Authenticode certificate tables](pe-certificates.md)
 - [PE import and delay-load tables](pe-imports.md)
 - [PE TLS callbacks and load configuration](pe-load-config.md)
+- [PE Rich header](pe-rich-header.md)
 - [Python packaged applications](python-packaged-applications.md)
 - [CPython pyc inspection](python-pyc.md)
 - [Reconstruction coverage](reconstruction-coverage.md)

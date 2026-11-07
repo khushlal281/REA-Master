@@ -606,6 +606,11 @@ export const documentationSections = [
         route: "/pe-load-config",
       },
       {
+        text: "PE Rich header",
+        source: "pe-rich-header.md",
+        route: "/pe-rich-header",
+      },
+      {
         text: "Python packaged applications",
         source: "python-packaged-applications.md",
         route: "/python-packaged-applications",
