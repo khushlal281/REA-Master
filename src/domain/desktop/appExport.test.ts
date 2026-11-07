@@ -1,17 +1,87 @@
 import { describe, expect, it } from "vitest";
+import { spawnSync } from "node:child_process";
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { pathToFileURL } from "node:url";
 
 import {
   appModuleFile,
   className,
   environmentName,
   launchCommand,
+  launchDocumentLimitation,
+  launchDocumentNote,
   ownedPaths,
   renderAppClass,
   renderEnvToml,
   renderInstallScript,
   renderReadme,
+  seedWording,
   type DesktopAppExportPlan,
 } from "./appExport.js";
+import type { LaunchDocument } from "./seedDocument.js";
+
+it.skipIf(process.platform === "win32")(
+  "does not import seeded Python modules while encoding a file URL",
+  () => {
+    const home = mkdtempSync(join(tmpdir(), "rea-url-home-"));
+    try {
+      writeFileSync(
+        join(home, "urllib.py"),
+        'open("seed-ran", "w").write("unexpected")\n',
+      );
+      const command = launchCommand(
+        [
+          process.execPath,
+          "-e",
+          "process.stdout.write(process.argv[1])",
+          "file:///home/ada/Documents/report.txt",
+        ],
+        "/home/ada",
+        "/home/ada",
+      );
+      const result = spawnSync(command[0]!, command.slice(1), {
+        encoding: "utf8",
+        env: { ...process.env, HOME: home },
+      });
+      expect(result.status).toBe(0);
+      expect(result.stdout).toBe(
+        pathToFileURL(join(home, "Documents/report.txt")).href,
+      );
+      expect(existsSync(join(home, "seed-ran"))).toBe(false);
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
+  },
+);
+
+it.skipIf(process.platform === "win32")(
+  "launches captured file URLs under the runtime home with their encoded suffix, query, and fragment",
+  () => {
+    for (const prefix of ["file://", "file://localhost"]) {
+      const captured = `${prefix}/home/ada/Documents/%41%20budget.svg?mode=edit#page`;
+      const command = launchCommand(
+        [
+          process.execPath,
+          "-e",
+          "process.stdout.write(process.argv[1])",
+          captured,
+        ],
+        "/home/ada",
+        "/home/ada",
+      );
+      const result = spawnSync(command[0]!, command.slice(1), {
+        encoding: "utf8",
+        env: { ...process.env, HOME: "/tmp/Run #测" },
+      });
+      expect(result.status).toBe(0);
+      expect(result.stdout).toBe(
+        `${prefix}/tmp/Run%20%23%E6%B5%8B/Documents/%41%20budget.svg?mode=edit#page`,
+      );
+    }
+  },
+);
 
 const plan: DesktopAppExportPlan = {
   name: "mousepad",
@@ -26,10 +96,12 @@ const plan: DesktopAppExportPlan = {
   packageFile: null,
   electron: false,
   command: ["mousepad"],
+  opens: { kind: "empty" },
   windowClass: "Mousepad",
   paths: [".config/Mousepad", "Documents"],
   capturedHome: "/home/ada",
   seedCheckpoint: "baseline",
+  syntheticSeed: false,
   seedFiles: ["Documents/todo.txt"],
   textSeeds: ["Documents/todo.txt"],
   unseededFiles: [],
@@ -307,5 +379,74 @@ describe("renderers", () => {
     expect(readme).toContain(
       "such as a trial's terms, is the operator's to check",
     );
+  });
+});
+
+describe("README and class wording", () => {
+  it("adds one README line on what the launch opens: the seed's document, or why it opens none", () => {
+    const command = launchCommand(
+      ["mousepad", "/home/ada/Documents/todo.txt"],
+      "/home/ada",
+      "/home/ada",
+    );
+    const readme = (opens: LaunchDocument) =>
+      renderReadme({ ...plan, command, opens });
+    const bare = readme({ kind: "empty" });
+    const seed = { kind: "seed", document: "Documents/todo.txt" } as const;
+    const none = {
+      kind: "none",
+      reason: "the test gives this reason",
+    } as const;
+
+    expect(command.join(" ")).toContain(`"$HOME"/'Documents/todo.txt'`);
+    expect(bare).toContain(`\`${command.join(" ")}\``);
+    for (const opens of [seed, none]) {
+      const note = launchDocumentNote({ opens });
+      expect(note).not.toBe("");
+      expect(readme(opens).replace(note, "")).toBe(bare);
+    }
+    expect(readme(seed)).toContain("`~/Documents/todo.txt`");
+    expect(bare).not.toContain("~/Documents/todo.txt");
+    const limitation = launchDocumentLimitation(none);
+    expect(limitation).toContain(none.reason);
+    expect(launchDocumentNote({ opens: none })).toContain(limitation);
+    expect(readme({ kind: "captured" })).toBe(bare);
+    for (const opens of [
+      seed,
+      { kind: "captured" },
+      { kind: "empty" },
+    ] as const)
+      expect(launchDocumentLimitation(opens)).toBeUndefined();
+  });
+
+  it("says the seed is the user's own data to keep local, unless it was made for the task", () => {
+    const own = { ...plan, seedCheckpoint: "drafted" };
+    const made = { ...own, syntheticSeed: true };
+    const wording = { own: seedWording(own), made: seedWording(made) };
+    // The README's seed line and closing notice, and the class's docstring.
+    const renderedIn = {
+      origin: renderReadme,
+      notice: renderReadme,
+      docstring: renderAppClass,
+    } satisfies Record<
+      keyof typeof wording.own,
+      (from: DesktopAppExportPlan) => string
+    >;
+
+    for (const [from, kept, other] of [
+      [own, wording.own, wording.made],
+      [made, wording.made, wording.own],
+    ] as const)
+      for (const key of ["origin", "notice", "docstring"] as const) {
+        const rendered = renderedIn[key](from);
+        expect(rendered).toContain(kept[key]);
+        expect(rendered).not.toContain(other[key]);
+      }
+    for (const { origin, docstring } of [wording.own, wording.made]) {
+      expect(origin).toContain("`drafted`");
+      expect(docstring).toContain("drafted");
+    }
+    expect(renderReadme(made)).toContain("`envs/mousepad/seed/`");
+    expect(renderReadme(own)).not.toContain("`envs/mousepad/seed/`");
   });
 });
