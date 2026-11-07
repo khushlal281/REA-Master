@@ -15,9 +15,9 @@ import {
 import { err, ok, type Result } from "../../domain/result.js";
 import type { ControlledComputer } from "../../desktop/BuildComputerController.js";
 import {
-  adapterError,
   ENDS,
   readOutput,
+  reportedFailure,
   runRea,
 } from "./DesktopBuildCommands.js";
 
@@ -87,7 +87,7 @@ const draftTask = async (
       draft_refusal: `No draft: the capture has no ${missing.join(" or ")} checkpoint; capture again and mark ${SEED_CHECKPOINT} once the seed is saved and ${END_CHECKPOINT} once the edit is.`,
     };
   const stdout = `${folder}/draft.json`;
-  const bytes = await runRea(
+  const { stdoutBytes: bytes } = await runRea(
     computer,
     [
       "describe-desktop-application-task",
@@ -147,9 +147,7 @@ export const summarizeCapture = async (
     signal,
   );
   if (output.kind === "failure")
-    return err(
-      adapterError(STOP, `The capture failed: ${output.failure.message}`),
-    );
+    return err(reportedFailure(STOP, output, "The capture failed: "));
   const recorded = desktopApplicationCaptureSchema.parse(output.result);
   const checkpoints = new Set(
     recorded.state.checkpoints.map((checkpoint) => checkpoint.name),
